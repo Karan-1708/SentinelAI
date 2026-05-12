@@ -21,6 +21,7 @@ from typing import Optional
 import numpy as np
 
 from api.config import settings
+from ingestion.normalizer import INT_TO_LABEL
 from models.anomaly_detector import AnomalyDetector
 from models.mitre_mapper import MitreMapper
 from models.preprocessor import load as load_preprocessor
@@ -98,11 +99,11 @@ class PredictionService:
     def _get_shap_explainer(self):
         if self._shap_explainer is None:
             from explainability.shap_explainer import SHAPExplainer
-            # Feature names after preprocessing are not tracked per-request —
-            # use index labels as fallback if feature names unavailable
+            from models.preprocessor import get_feature_names
+            feature_names = get_feature_names(self.pipeline, FEATURE_COLUMNS)
             self._shap_explainer = SHAPExplainer(
                 xgb_model=self.classifier.model,
-                feature_names=[f"feature_{i}" for i in range(50)],
+                feature_names=feature_names,
             )
         return self._shap_explainer
 
@@ -137,6 +138,8 @@ class PredictionService:
 
         # Step 3: Classification (always run — even for non-anomalies, for logging)
         label, confidence, proba = self.classifier.predict_single(X_processed)
+        if label.isdigit():
+            label = INT_TO_LABEL.get(int(label), label)
 
         # Step 4: MITRE mapping
         mitre_techniques = self.mitre_mapper.map(label)

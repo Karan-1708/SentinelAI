@@ -28,7 +28,7 @@ services:
 
   mlflow:
     ports:
-      - "5000:5000"   # MLflow UI direct access
+      - "5001:5000"   # MLflow UI direct access (5000 taken by logstash syslog)
 
   minio:
     ports:
