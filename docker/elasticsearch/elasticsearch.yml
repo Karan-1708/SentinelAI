@@ -1,0 +1,10 @@
+cluster.name: sentinelai-cluster
+node.name: elasticsearch
+network.host: 0.0.0.0
+discovery.type: single-node
+
+# Security is configured via environment variables in docker-compose.yml
+# (xpack.security.enabled, SSL certs, etc.)
+
+# Index settings
+action.auto_create_index: "cicids-*,syslog-*,netflow-*,winlog-*,.security*,.kibana*"

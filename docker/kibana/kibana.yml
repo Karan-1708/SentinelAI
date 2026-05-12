@@ -1,0 +1,12 @@
+server.name: kibana
+server.host: 0.0.0.0
+server.publicBaseUrl: http://localhost:5601
+
+# Elasticsearch connection — set via environment variables in docker-compose.yml
+# (ELASTICSEARCH_HOSTS, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD)
+
+# SSL — CA cert path set via environment variable
+# (ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES)
+
+xpack.security.enabled: true
+xpack.encryptedSavedObjects.encryptionKey: "sentinelai-kibana-encryption-key-32ch"

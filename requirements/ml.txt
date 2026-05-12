@@ -1,0 +1,29 @@
+-r base.txt
+
+# Data processing
+# numpy pinned: shap 0.45.x requires numpy<2.0
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.0
+joblib==1.4.2
+
+# Imbalance handling
+imbalanced-learn==0.12.3
+
+# XGBoost
+xgboost==2.0.3
+
+# Experiment tracking
+mlflow==2.13.0
+boto3==1.34.0
+
+# MITRE ATT&CK
+mitreattack-python==3.0.5
+stix2==3.0.1
+
+# Explainability
+shap==0.45.1
+matplotlib==3.9.0
+
+# Report generation (pure Python, no native deps)
+reportlab==4.2.0

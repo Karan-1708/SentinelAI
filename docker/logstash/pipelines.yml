@@ -1,0 +1,18 @@
+# Multi-pipeline configuration
+# Each pipeline runs independently with its own worker threads
+
+- pipeline.id: cicids
+  path.config: /usr/share/logstash/pipeline/cicids.conf
+  pipeline.workers: 2
+
+- pipeline.id: syslog
+  path.config: /usr/share/logstash/pipeline/syslog.conf
+  pipeline.workers: 1
+
+- pipeline.id: winlogbeat
+  path.config: /usr/share/logstash/pipeline/winlogbeat.conf
+  pipeline.workers: 1
+
+- pipeline.id: netflow
+  path.config: /usr/share/logstash/pipeline/netflow.conf
+  pipeline.workers: 1

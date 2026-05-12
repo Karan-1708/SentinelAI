@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Claude Code internals
+.claude/
+
+# Data — never commit raw datasets or STIX bundles
+data/raw/
+data/cicids/
+data/enterprise-attack.json
+data/sample/*.csv
+
+# Model artifacts
+models/*.ubj
+models/*.pkl
+models/*.joblib
+model_artifacts/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Reports output
+*.pdf
+
+# ELK TLS certificates (generated at runtime by setup container)
+docker/certs/
+certs/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Node / React
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker local volume data
+docker/volumes/
+minio_data/

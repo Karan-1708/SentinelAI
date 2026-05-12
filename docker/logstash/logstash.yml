@@ -1,0 +1,11 @@
+http.host: 0.0.0.0
+xpack.monitoring.enabled: false
+
+# Dead letter queue — captures events that fail processing for later inspection
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 1gb
+
+# Pipeline settings
+pipeline.workers: 2
+pipeline.batch.size: 500
+pipeline.batch.delay: 50

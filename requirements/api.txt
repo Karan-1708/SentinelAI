@@ -1,0 +1,13 @@
+-r base.txt
+
+# FastAPI
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+
+# Async database
+sqlalchemy==2.0.30
+asyncpg==0.29.0
+alembic==1.13.1
+
+# Elasticsearch async client
+elasticsearch[async]==8.13.0
