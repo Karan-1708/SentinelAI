@@ -1,5 +1,7 @@
 # Multi-pipeline configuration
 # Each pipeline runs independently with its own worker threads
+# Note: netflow pipeline disabled — logstash-codec-netflow 4.3.2 has a
+# bindata/JRuby compatibility bug in Logstash 8.17. Re-enable after plugin update.
 
 - pipeline.id: cicids
   path.config: /usr/share/logstash/pipeline/cicids.conf
@@ -11,8 +13,4 @@
 
 - pipeline.id: winlogbeat
   path.config: /usr/share/logstash/pipeline/winlogbeat.conf
-  pipeline.workers: 1
-
-- pipeline.id: netflow
-  path.config: /usr/share/logstash/pipeline/netflow.conf
   pipeline.workers: 1

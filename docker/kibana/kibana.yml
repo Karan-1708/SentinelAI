@@ -3,10 +3,9 @@ server.host: 0.0.0.0
 server.publicBaseUrl: http://localhost:5601
 
 # Elasticsearch connection — set via environment variables in docker-compose.yml
-# (ELASTICSEARCH_HOSTS, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD)
+# (ELASTICSEARCH_HOSTS, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD,
+#  ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES)
 
-# SSL — CA cert path set via environment variable
-# (ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES)
-
-xpack.security.enabled: true
-xpack.encryptedSavedObjects.encryptionKey: "sentinelai-kibana-encryption-key-32ch"
+# Note: xpack.security.enabled is intentionally omitted.
+# Kibana 8.x detects security config from Elasticsearch automatically;
+# setting it explicitly in kibana.yml is a fatal validation error in 8.x.
