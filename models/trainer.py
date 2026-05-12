@@ -101,6 +101,17 @@ def train(
     df = load_dataset(data_dir, max_rows=max_rows)
     X, y = prepare_features(df)
 
+    # Drop classes with fewer than min_samples_per_class samples —
+    # stratified splitting requires at least 2 per class; use 5 for safety
+    min_samples = max(5, int(1 / test_size) + 1)
+    counts = np.bincount(y)
+    valid = np.where(counts >= min_samples)[0]
+    if len(valid) < len(counts):
+        dropped = len(counts) - len(valid)
+        mask = np.isin(y, valid)
+        X, y = X[mask], y[mask]
+        logger.warning("Dropped %d rare classes (< %d samples); %d rows removed", dropped, min_samples, (~mask).sum())
+
     # Column names (before preprocessing reduces them)
     feature_cols = [c for c in df.columns if c not in ("label", "label_int", "Label")]
     class_names = [INT_TO_LABEL[i] for i in sorted(np.unique(y)) if i in INT_TO_LABEL]
@@ -174,14 +185,13 @@ def train(
 
         # ── Step 4: Evaluate on test set ───────────────────────────────
         logger.info("Evaluating on test set...")
+        # predict_proba returns labels from LabelEncoder.inverse_transform;
+        # since the encoder was fit on integer y_train, these are already int class IDs.
         y_pred_labels, y_proba = classifier.predict_proba(X_test_t)
-        y_pred_int = np.array([
-            list(INT_TO_LABEL.values()).index(lbl)
-            if lbl in list(INT_TO_LABEL.values()) else -1
-            for lbl in y_pred_labels
-        ])
+        y_pred_int = np.asarray(y_pred_labels, dtype=int)
 
-        metrics = evaluate(y_test, y_pred_int, y_proba, class_names=class_names)
+        # Don't pass class_names — let sklearn infer from data to avoid count mismatches
+        metrics = evaluate(y_test, y_pred_int, y_proba, class_names=None)
         mlflow.log_metric("macro_f1", metrics["macro_f1"])
         mlflow.log_metric("accuracy", metrics["accuracy"])
         if "roc_auc" in metrics and metrics["roc_auc"] is not None:
@@ -190,7 +200,7 @@ def train(
         mlflow.log_dict(metrics["classification_report"], "classification_report.json")
 
         # Confusion matrix figure
-        fig = confusion_matrix_figure(y_test, y_pred_int, class_names=class_names)
+        fig = confusion_matrix_figure(y_test, y_pred_int, class_names=None)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(figure_to_bytes(fig))
             mlflow.log_artifact(f.name, artifact_path="plots")

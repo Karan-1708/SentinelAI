@@ -1,19 +1,23 @@
 -r base.txt
 
 # Data processing
-# numpy pinned: shap 0.45.x requires numpy<2.0
+# numpy: keep <2.0 for shap 0.45.x compatibility
 numpy==1.26.4
 pandas==2.2.2
-scikit-learn==1.5.0
+# scikit-learn 1.5.2: last version fully compatible with xgboost 2.0.3
+# (sklearn 1.6 added __sklearn_tags__ protocol that xgboost 2.0.x doesn't implement)
+scikit-learn==1.5.2
 joblib==1.4.2
 
-# Imbalance handling
-imbalanced-learn==0.12.3
+# Imbalance handling (0.13.0+ required for scikit-learn 1.6 compatibility)
+imbalanced-learn==0.13.0
 
 # XGBoost
 xgboost==2.0.3
 
 # Experiment tracking
+# setuptools<82 required: setuptools 82+ removed pkg_resources, which mlflow 2.13.0 needs
+setuptools<82
 mlflow==2.13.0
 boto3==1.34.0
 

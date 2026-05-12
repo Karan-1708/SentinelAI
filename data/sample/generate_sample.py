@@ -124,7 +124,7 @@ def main() -> None:
     df.to_csv(output, index=False)
 
     counts = df["Label"].value_counts()
-    print(f"Generated {len(df)} rows → {output}")
+    print(f"Generated {len(df)} rows -> {output}")
     print(counts.to_string())
 
 
