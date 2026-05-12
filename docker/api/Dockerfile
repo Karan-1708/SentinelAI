@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (cached layer)
-COPY requirements/all.txt requirements/all.txt
+COPY requirements/ requirements/
 RUN pip install --no-cache-dir -r requirements/all.txt
 
 # Copy source code

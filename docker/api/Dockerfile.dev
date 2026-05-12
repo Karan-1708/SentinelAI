@@ -4,8 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-COPY requirements/all.txt requirements/all.txt
-COPY requirements/dev.txt requirements/dev.txt
+COPY requirements/ requirements/
 RUN pip install --no-cache-dir -r requirements/all.txt -r requirements/dev.txt
 
 # Source code is mounted as volumes in dev — no COPY needed
