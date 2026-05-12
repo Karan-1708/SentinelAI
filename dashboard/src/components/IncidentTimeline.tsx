@@ -1,21 +1,15 @@
 import {
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
+  ScatterChart, Scatter, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, Cell,
 } from 'recharts'
 import { useIncidentStore } from '../store/incidents'
 
 const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: '#dc2626',
-  HIGH: '#ea580c',
-  MEDIUM: '#d97706',
-  LOW: '#2563eb',
-  INFO: '#16a34a',
+  CRITICAL: '#ef4444',
+  HIGH:     '#f97316',
+  MEDIUM:   '#eab308',
+  LOW:      '#3b82f6',
+  INFO:     '#22c55e',
 }
 
 export default function IncidentTimeline() {
@@ -30,55 +24,66 @@ export default function IncidentTimeline() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-slate-700">
-        <h2 className="text-sm font-semibold text-slate-300">Incident Timeline</h2>
-        <p className="text-xs text-slate-500">Anomaly score over time • color = severity</p>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-700/60">
+        <span className="text-cyan-400">📡</span>
+        <div>
+          <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Anomaly Timeline</h2>
+          <p className="text-[10px] text-slate-500">Score magnitude · dot color = severity</p>
+        </div>
       </div>
-      <div className="flex-1 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis
-              dataKey="time"
-              type="number"
-              domain={['auto', 'auto']}
-              tickFormatter={(v) => new Date(v).toLocaleTimeString()}
-              stroke="#475569"
-              tick={{ fontSize: 10, fill: '#94a3b8' }}
-              name="Time"
-            />
-            <YAxis
-              dataKey="score"
-              name="Anomaly Score"
-              stroke="#475569"
-              tick={{ fontSize: 10, fill: '#94a3b8' }}
-              label={{ value: '|Score|', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }}
-            />
-            <Tooltip
-              cursor={{ strokeDasharray: '3 3' }}
-              content={({ payload }) => {
-                if (!payload?.length) return null
-                const d = payload[0].payload
-                return (
-                  <div className="bg-slate-800 border border-slate-600 rounded p-2 text-xs">
-                    <p className="text-slate-200 font-semibold">{d.label}</p>
-                    <p className="text-slate-400">Score: {d.score.toFixed(4)}</p>
-                    <p className="text-slate-400">{new Date(d.time).toLocaleTimeString()}</p>
-                  </div>
-                )
-              }}
-            />
-            <Scatter data={data} name="Incidents">
-              {data.map((entry, index) => (
-                <Cell
-                  key={index}
-                  fill={SEVERITY_COLORS[entry.severity] ?? '#64748b'}
-                  opacity={0.8}
-                />
-              ))}
-            </Scatter>
-          </ScatterChart>
-        </ResponsiveContainer>
+
+      <div className="flex-1 p-3">
+        {data.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-600">
+            <span className="text-4xl">📊</span>
+            <p className="text-xs text-slate-700">Timeline populates as events arrive</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
+              <XAxis
+                dataKey="time"
+                type="number"
+                domain={['auto', 'auto']}
+                tickFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                stroke="#1e293b"
+                tick={{ fontSize: 9, fill: '#64748b' }}
+              />
+              <YAxis
+                dataKey="score"
+                stroke="#1e293b"
+                tick={{ fontSize: 9, fill: '#64748b' }}
+                width={36}
+              />
+              <Tooltip
+                cursor={false}
+                content={({ payload }) => {
+                  if (!payload?.length) return null
+                  const d = payload[0].payload
+                  return (
+                    <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-slate-100 font-bold mb-1">{d.label}</p>
+                      <p className="text-slate-400">Score: <span className="text-slate-200">{d.score.toFixed(3)}</span></p>
+                      <p className="text-slate-400">{new Date(d.time).toLocaleTimeString()}</p>
+                    </div>
+                  )
+                }}
+              />
+              <Scatter data={data} r={5}>
+                {data.map((entry, index) => (
+                  <Cell
+                    key={index}
+                    fill={SEVERITY_COLORS[entry.severity] ?? '#64748b'}
+                    opacity={0.85}
+                    stroke={SEVERITY_COLORS[entry.severity] ?? '#64748b'}
+                    strokeWidth={0.5}
+                    strokeOpacity={0.3}
+                  />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

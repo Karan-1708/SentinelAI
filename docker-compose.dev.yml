@@ -54,10 +54,14 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile.dev
     volumes:
-      - ./dashboard/src:/app/src   # Vite HMR
+      - ./dashboard:/app                # full source tree for Vite HMR
+      - /app/node_modules               # preserve container's npm install
+    environment:
+      - API_TARGET=http://api:8000      # Vite proxy target (Docker internal)
+      - WS_TARGET=ws://api:8000         # Vite WebSocket proxy target
     ports:
       - "3000:3000"
-    command: npm run dev -- --host 0.0.0.0
+    command: npm run dev -- --host 0.0.0.0 --port 3000
 
   # Disable nginx in dev — talk to api:8000 and dashboard:3000 directly
   nginx:
