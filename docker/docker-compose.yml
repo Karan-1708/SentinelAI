@@ -23,27 +23,23 @@ services:
     image: elasticsearch:8.17.0
     networks: [sentinelai]
     volumes:
-      - certs:/certs
+      - certs:/usr/share/elasticsearch/config/certs
     user: "0"
     command: >
       bash -c "
-        if [ ! -f /certs/ca/ca.crt ]; then
-          elasticsearch-certutil ca --silent --pem -out /certs/ca.zip &&
-          unzip -o /certs/ca.zip -d /certs
+        if [ ! -f config/certs/ca/ca.crt ]; then
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip &&
+          unzip config/certs/ca.zip -d config/certs
         fi &&
-        if [ ! -f /certs/elasticsearch/elasticsearch.crt ]; then
-          elasticsearch-certutil cert --silent --pem
-            --ca-cert /certs/ca/ca.crt
-            --ca-key /certs/ca/ca.key
-            --dns elasticsearch,localhost
-            -out /certs/certs.zip &&
-          unzip -o /certs/certs.zip -d /certs
+        if [ ! -f config/certs/elasticsearch/elasticsearch.crt ]; then
+          bin/elasticsearch-certutil cert --silent --pem --name elasticsearch --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key --dns elasticsearch,localhost -out config/certs/certs.zip &&
+          unzip config/certs/certs.zip -d config/certs
         fi &&
-        chmod -R 755 /certs &&
+        chmod -R 750 config/certs &&
         echo 'Certificates ready.'
       "
     healthcheck:
-      test: ["CMD-SHELL", "[ -f /certs/elasticsearch/elasticsearch.crt ]"]
+      test: ["CMD-SHELL", "[ -f config/certs/elasticsearch/elasticsearch.crt ]"]
       interval: 5s
       timeout: 5s
       retries: 20
