@@ -1,13 +1,11 @@
-version: "3.9"
-
-# Development overrides:
-#   - Smaller ES heap (1GB) for machines with less RAM
-#   - Debug ports exposed to host
-#   - Source code mounted for hot reload
-#   - Nginx bypassed (API and dashboard served directly)
+# Development overrides — run alongside the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# Usage:
-#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d
+# Changes vs production:
+#   - Smaller ES heap (1GB) for machines with less RAM
+#   - Debug ports exposed to host (ES 9200, PG 5432, MLflow 5000, etc.)
+#   - Source code mounted for hot reload (uvicorn --reload, Vite HMR)
+#   - Nginx excluded (API on :8000, dashboard on :3000 directly)
 
 services:
   elasticsearch:
@@ -39,13 +37,13 @@ services:
 
   api:
     build:
-      context: ..
+      context: .
       dockerfile: docker/api/Dockerfile.dev
     volumes:
-      - ../api:/app/api          # hot reload: mount source
-      - ../models:/app/models
-      - ../explainability:/app/explainability
-      - ../ingestion:/app/ingestion
+      - ./api:/app/api
+      - ./models:/app/models
+      - ./explainability:/app/explainability
+      - ./ingestion:/app/ingestion
       - model_artifacts:/models
     ports:
       - "8000:8000"   # direct access without nginx
@@ -53,14 +51,14 @@ services:
 
   dashboard:
     build:
-      context: ../dashboard
+      context: ./dashboard
       dockerfile: Dockerfile.dev
     volumes:
-      - ../dashboard/src:/app/src   # Vite HMR
+      - ./dashboard/src:/app/src   # Vite HMR
     ports:
       - "3000:3000"
     command: npm run dev -- --host 0.0.0.0
 
   # Disable nginx in dev — talk to api:8000 and dashboard:3000 directly
   nginx:
-    profiles: ["production"]        # excluded from default dev compose
+    profiles: ["production"]
