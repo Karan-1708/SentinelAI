@@ -59,12 +59,10 @@ def test_save_and_load(synthetic_data, tmp_path):
     path = tmp_path / "test_preprocessor.joblib"
     fitted = fit_and_save(X, y, path=path, n_features=50)
 
-    # Inject NaN before clean transform
-    X_clean = np.where(np.isnan(X), 0.0, X)
-
-    X_fitted = transform(fitted, X_clean)
+    # Exercise the SimpleImputer path — do NOT scrub NaN before transform.
+    X_fitted = transform(fitted, X)
     loaded = load(path)
-    X_loaded = transform(loaded, X_clean)
+    X_loaded = transform(loaded, X)
     np.testing.assert_array_almost_equal(X_fitted, X_loaded)
 
 

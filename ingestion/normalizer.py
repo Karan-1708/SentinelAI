@@ -6,6 +6,17 @@ Known dataset issues handled here:
   2. "Infinity" and "-Infinity" values in "Flow Bytes/s" and "Flow Packets/s"
   3. NaN values — imputed with column median (not mean: distributions are heavily skewed)
   4. Mixed dtypes across 2.8M rows — requires low_memory=False
+
+Two label mappings are exposed:
+
+  ``LABEL_TO_FINE_INT`` — preserves attack granularity (XSS ≠ SQLi ≠ Brute Force).
+      Use this for training the classifier and for SHAP/MITRE mapping.
+  ``FINE_TO_COARSE_INT`` — rolls fine classes up into 9 reporting buckets.
+      Use this for dashboards and executive reports where noise matters more
+      than root-cause detail.
+
+``LABEL_TO_INT`` / ``INT_TO_LABEL`` are kept for backwards compatibility with
+call sites that already round-trip through the coarse map.
 """
 
 from __future__ import annotations
@@ -22,26 +33,40 @@ from ingestion.schemas.cicids_schema import CICIDSRecord
 
 logger = logging.getLogger(__name__)
 
-# Columns that are known to contain Infinity values in CICIDS-2017
-_INFINITY_COLUMNS = ["Flow Bytes/s", "Flow Packets/s"]
+# Columns known to contain Infinity values in CICIDS-2017
+_INFINITY_COLUMNS = ("Flow Bytes/s", "Flow Packets/s")
 
-# Map CICIDS-2017 string labels to integer class indices
-LABEL_TO_INT: dict[str, int] = {
+# ── Label mappings ────────────────────────────────────────────────────
+# Fine map preserves subtype granularity (13 classes).
+LABEL_TO_FINE_INT: dict[str, int] = {
     "BENIGN": 0,
     "DDoS": 1,
     "PortScan": 2,
     "Bot": 3,
     "Infiltration": 4,
     "Web Attack \x96 Brute Force": 5,
-    "Web Attack \x96 XSS": 5,
-    "Web Attack \x96 Sql Injection": 5,
-    "FTP-Patator": 6,
-    "SSH-Patator": 6,
-    "DoS slowloris": 7,
-    "DoS Slowhttptest": 7,
-    "DoS Hulk": 7,
-    "DoS GoldenEye": 7,
-    "Heartbleed": 8,
+    "Web Attack \x96 XSS": 6,
+    "Web Attack \x96 Sql Injection": 7,
+    "FTP-Patator": 8,
+    "SSH-Patator": 9,
+    "DoS slowloris": 10,
+    "DoS Slowhttptest": 11,
+    "DoS Hulk": 12,
+    "DoS GoldenEye": 13,
+    "Heartbleed": 14,
+}
+
+# Coarse rollup for reporting (9 buckets).
+FINE_TO_COARSE_INT: dict[int, int] = {
+    0: 0,   # BENIGN
+    1: 1,   # DDoS
+    2: 2,   # PortScan
+    3: 3,   # Botnet
+    4: 4,   # Infiltration
+    5: 5, 6: 5, 7: 5,   # Web Attack (BF / XSS / SQLi)
+    8: 6, 9: 6,          # Brute Force (FTP / SSH)
+    10: 7, 11: 7, 12: 7, 13: 7,  # DoS variants
+    14: 8,  # Heartbleed
 }
 
 INT_TO_LABEL: dict[int, str] = {
@@ -56,30 +81,46 @@ INT_TO_LABEL: dict[int, str] = {
     8: "Heartbleed",
 }
 
+# Coarse map kept for callers that don't need subtype detail.
+LABEL_TO_INT: dict[str, int] = {
+    lbl: FINE_TO_COARSE_INT[fine] for lbl, fine in LABEL_TO_FINE_INT.items()
+}
+
+
+# ── Shared cleaners ───────────────────────────────────────────────────
+
+def clean_infinities(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce Infinity strings/floats to NaN across all numeric columns.
+
+    Idempotent. Safe to call on both full frames and streamed chunks.
+    """
+    for col in _INFINITY_COLUMNS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols):
+        df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
+    return df
+
+
+def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """Strip whitespace from headers and normalise the label column to lower case."""
+    df.columns = df.columns.str.strip()
+    if "Label" in df.columns:
+        df.rename(columns={"Label": "label"}, inplace=True)
+    if "label" in df.columns:
+        df["label"] = df["label"].astype(str).str.strip()
+    return df
+
+
+# ── Loaders ───────────────────────────────────────────────────────────
 
 def load_csv(path: str | Path) -> pd.DataFrame:
     """Load a CICIDS-2017 CSV, strip header spaces, and replace Infinity values."""
     df = pd.read_csv(path, low_memory=False)
-
-    # Fix 1: Strip leading/trailing spaces from all column names
-    df.columns = df.columns.str.strip()
-
-    # Fix 2: Replace Infinity strings with NaN in known columns
-    for col in _INFINITY_COLUMNS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-            df[col] = df[col].replace([np.inf, -np.inf], np.nan)
-
-    # Fix 3: Replace any remaining Inf values across all numeric columns
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
-
-    # Fix 4: Strip spaces from the label column value
-    if "Label" in df.columns:
-        df.rename(columns={"Label": "label"}, inplace=True)
-    if "label" in df.columns:
-        df["label"] = df["label"].str.strip()
-
+    df = normalize_headers(df)
+    df = clean_infinities(df)
     logger.info("Loaded %d rows from %s", len(df), path)
     return df
 
@@ -87,33 +128,45 @@ def load_csv(path: str | Path) -> pd.DataFrame:
 def impute_medians(df: pd.DataFrame) -> pd.DataFrame:
     """Fill NaN values with column medians (robust to skewed distributions)."""
     numeric_cols = df.select_dtypes(include=[np.number]).columns
-    medians = df[numeric_cols].median()
-    df[numeric_cols] = df[numeric_cols].fillna(medians)
+    if len(numeric_cols):
+        medians = df[numeric_cols].median()
+        df[numeric_cols] = df[numeric_cols].fillna(medians)
     return df
 
 
-def normalize_labels(df: pd.DataFrame) -> pd.DataFrame:
-    """Map CICIDS string labels to consolidated integer classes."""
+def _normalise_label(label: str) -> str:
+    """Normalise the unicode dash variants seen in Web Attack labels."""
+    return label.replace("–", "\x96").replace("—", "\x96")
+
+
+def normalize_labels(df: pd.DataFrame, *, fine: bool = False) -> pd.DataFrame:
+    """Map CICIDS string labels to integer classes.
+
+    ``fine=True`` preserves attack subtypes (14 classes). Default is the
+    coarse 9-class rollup.
+    """
     if "label" not in df.columns:
         return df
 
-    def _map(label: str) -> int:
-        # Handle unicode dash variants in Web Attack labels
-        normalized = label.replace("–", "\x96").replace("—", "\x96")
-        return LABEL_TO_INT.get(normalized, LABEL_TO_INT.get(label, -1))
+    table = LABEL_TO_FINE_INT if fine else LABEL_TO_INT
 
-    df["label_int"] = df["label"].apply(_map)
-    unknown = df[df["label_int"] == -1]["label"].unique()
-    if len(unknown) > 0:
+    def _map(label: str) -> int:
+        return table.get(_normalise_label(label), table.get(label, -1))
+
+    column = "label_fine_int" if fine else "label_int"
+    df[column] = df["label"].apply(_map)
+
+    unknown = df.loc[df[column] == -1, "label"].unique()
+    if len(unknown):
         logger.warning("Unknown labels (mapped to -1): %s", unknown.tolist())
 
     return df
 
 
 def validate_batch(records: list[dict]) -> tuple[list[CICIDSRecord], list[dict]]:
-    """
-    Validate a list of row dicts against CICIDSRecord schema.
-    Returns (valid_records, failed_rows).
+    """Validate a list of row dicts against ``CICIDSRecord``.
+
+    Returns ``(valid_records, failed_rows)``.
     """
     valid, failed = [], []
     for row in records:
@@ -129,32 +182,16 @@ def iter_chunks(
     path: str | Path,
     chunk_size: int = 10_000,
 ) -> Iterator[pd.DataFrame]:
-    """
-    Yield normalized DataFrame chunks from a CICIDS CSV.
-    Use this for memory-efficient processing of the 2.8M-row dataset.
-    """
+    """Yield normalised DataFrame chunks — memory-efficient for the 2.8M-row set."""
     for chunk in pd.read_csv(path, low_memory=False, chunksize=chunk_size):
-        chunk.columns = chunk.columns.str.strip()
-
-        for col in _INFINITY_COLUMNS:
-            if col in chunk.columns:
-                chunk[col] = pd.to_numeric(chunk[col], errors="coerce")
-                chunk[col] = chunk[col].replace([np.inf, -np.inf], np.nan)
-
-        numeric_cols = chunk.select_dtypes(include=[np.number]).columns
-        chunk[numeric_cols] = chunk[numeric_cols].replace([np.inf, -np.inf], np.nan)
-
-        if "Label" in chunk.columns:
-            chunk.rename(columns={"Label": "label"}, inplace=True)
-        if "label" in chunk.columns:
-            chunk["label"] = chunk["label"].str.strip()
-
+        chunk = normalize_headers(chunk)
+        chunk = clean_infinities(chunk)
         yield chunk
 
 
-def process_file(path: str | Path) -> pd.DataFrame:
+def process_file(path: str | Path, *, fine: bool = False) -> pd.DataFrame:
     """Full normalization pipeline for a single CICIDS CSV file."""
     df = load_csv(path)
     df = impute_medians(df)
-    df = normalize_labels(df)
+    df = normalize_labels(df, fine=fine)
     return df
