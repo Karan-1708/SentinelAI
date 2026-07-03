@@ -1,12 +1,23 @@
 """
-SHAP TreeExplainer for XGBoost multi-class classifier.
+SHAP TreeExplainer for the XGBoost multi-class classifier.
 
-Key decisions:
-  - feature_perturbation="interventional": more accurate for correlated features
-    (CICIDS-2017 has correlated packet length features).
-    Default "tree_path_dependent" can misattribute importance for correlated inputs.
-  - Multi-class output: shap_values shape = (n_classes, n_rows, n_features)
-    Index [predicted_class_idx] to get contributions for the predicted class.
+Two ``feature_perturbation`` modes are supported:
+
+  ``interventional`` — requires a background dataset; more accurate under
+      feature correlation (CICIDS-2017 has correlated packet-length features).
+  ``tree_path_dependent`` — fast, requires no background, but can misattribute
+      importance for correlated inputs. Used as the fallback when no
+      background is supplied so the platform still works out of the box.
+
+Multi-class handling adapts to both SHAP output layouts:
+
+  * old (< 0.40): ``shap_values`` is a ``list[ndarray]`` (per class)
+  * new (>= 0.40): ``shap_values`` is a single ``ndarray`` shape
+      ``(n_rows, n_features, n_classes)``.
+
+The predicted class index is always derived from the model — never estimated
+from SHAP sums — so the explanation cannot desynchronise from the model's
+own argmax.
 """
 
 from __future__ import annotations
@@ -24,65 +35,91 @@ class SHAPExplainer:
         self,
         xgb_model,
         feature_names: list[str],
+        background: Optional[np.ndarray] = None,
     ) -> None:
         import shap
-        self.explainer = shap.TreeExplainer(
-            xgb_model,
-            feature_perturbation="interventional",
-        )
+
+        self._model = xgb_model
         self.feature_names = feature_names
 
+        if background is not None and len(background):
+            self.explainer = shap.TreeExplainer(
+                xgb_model,
+                data=background,
+                feature_perturbation="interventional",
+            )
+            logger.info(
+                "SHAP TreeExplainer initialised (interventional, background=%d rows)",
+                len(background),
+            )
+        else:
+            self.explainer = shap.TreeExplainer(
+                xgb_model,
+                feature_perturbation="tree_path_dependent",
+            )
+            logger.info(
+                "SHAP TreeExplainer initialised (tree_path_dependent; no background)"
+            )
+
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _predicted_class_idx(self, X_row: np.ndarray) -> int:
+        """Ask the model itself for the winning class, not SHAP sums."""
+        try:
+            proba = self._model.predict_proba(X_row)
+            return int(np.argmax(proba[0]))
+        except Exception:
+            logger.exception("predict_proba failed; falling back to class 0")
+            return 0
+
+    def _class_shap_and_base(
+        self, X_row: np.ndarray, predicted_class_idx: int
+    ) -> tuple[np.ndarray, float]:
+        shap_values = self.explainer.shap_values(X_row)
+        ev = self.explainer.expected_value
+
+        if isinstance(shap_values, list):
+            n_classes = len(shap_values)
+            idx = predicted_class_idx if 0 <= predicted_class_idx < n_classes else 0
+            base_values = ev if hasattr(ev, "__len__") else [ev] * n_classes
+            return np.asarray(shap_values[idx][0]), float(base_values[idx])
+
+        arr = np.asarray(shap_values)
+        if arr.ndim == 3:
+            n_classes = arr.shape[-1]
+            idx = predicted_class_idx if 0 <= predicted_class_idx < n_classes else 0
+            base = float(ev[idx]) if hasattr(ev, "__len__") else float(ev)
+            return arr[0, :, idx], base
+        # Binary / single-output
+        base = float(ev[0]) if hasattr(ev, "__len__") else float(ev)
+        return arr[0], base
+
+    # ── Public API ─────────────────────────────────────────────────────
+
     def explain_prediction(self, X_row: np.ndarray) -> dict:
-        """
-        Generate SHAP explanation for a single prediction.
+        """SHAP explanation for a single prediction.
 
         Args:
-            X_row: shape (1, n_features) — already preprocessed
+            X_row: shape (1, n_features) — already preprocessed.
 
-        Returns:
-            dict with:
-              base_value: float — model's baseline output for predicted class
-              feature_contributions: list of {feature, shap_value, feature_value}
-              top_features: top 10 by |shap_value|
+        Returns a dict with ``base_value``, ``predicted_class_idx``,
+        ``feature_contributions``, ``top_features``.
         """
-        shap_values = self.explainer.shap_values(X_row)
+        predicted_class_idx = self._predicted_class_idx(X_row)
+        class_shap, base_value = self._class_shap_and_base(X_row, predicted_class_idx)
 
-        # For multi-class XGBoost: shape (n_classes, n_rows, n_features)
-        if isinstance(shap_values, list):
-            # Older SHAP returns list of arrays
-            n_classes = len(shap_values)
-            # Determine predicted class by summing SHAP + base value
-            base_values = self.explainer.expected_value
-            if not hasattr(base_values, "__len__"):
-                base_values = [base_values] * n_classes
-
-            class_totals = [
-                float(base_values[i]) + float(shap_values[i][0].sum())
-                for i in range(n_classes)
-            ]
-            predicted_class_idx = int(np.argmax(class_totals))
-            class_shap = shap_values[predicted_class_idx][0]
-            base_value = float(base_values[predicted_class_idx])
-        else:
-            # Newer SHAP: ndarray shape (n_rows, n_features, n_classes)
-            if shap_values.ndim == 3:
-                predicted_class_idx = int(np.argmax(shap_values[0].sum(axis=0)))
-                class_shap = shap_values[0, :, predicted_class_idx]
-            else:
-                class_shap = shap_values[0]
-                predicted_class_idx = 0
-
-            ev = self.explainer.expected_value
-            base_value = float(ev[predicted_class_idx]) if hasattr(ev, "__len__") else float(ev)
-
-        contributions = [
-            {
-                "feature": name,
-                "shap_value": float(val),
-                "feature_value": float(X_row[0][i]) if i < X_row.shape[1] else 0.0,
-            }
-            for i, (name, val) in enumerate(zip(self.feature_names, class_shap))
-        ]
+        n_features = X_row.shape[1]
+        contributions = []
+        for i, name in enumerate(self.feature_names):
+            if i >= n_features or i >= len(class_shap):
+                break
+            contributions.append(
+                {
+                    "feature": name,
+                    "shap_value": float(class_shap[i]),
+                    "feature_value": float(X_row[0][i]),
+                }
+            )
 
         top_features = sorted(
             [{"feature": c["feature"], "shap_value": c["shap_value"]} for c in contributions],
@@ -97,38 +134,22 @@ class SHAPExplainer:
             "top_features": top_features,
         }
 
-    def waterfall_figure(
-        self,
-        X_row: np.ndarray,
-        max_display: int = 15,
-    ):
-        """
-        Generate a matplotlib Figure of the SHAP waterfall plot.
-        Returned figure is embedded in PDF reports by report_generator.py.
-        """
+    def waterfall_figure(self, X_row: np.ndarray, max_display: int = 15):
+        """Return a matplotlib Figure of the SHAP waterfall for the predicted class."""
         import matplotlib.pyplot as plt
         import shap
 
-        shap_values = self.explainer.shap_values(X_row)
-
-        if isinstance(shap_values, list):
-            # Use first class for waterfall (simplified)
-            sv = shap_values[0][0]
-            ev = self.explainer.expected_value
-            base = float(ev[0]) if hasattr(ev, "__len__") else float(ev)
-        else:
-            sv = shap_values[0] if shap_values.ndim == 2 else shap_values[0, :, 0]
-            ev = self.explainer.expected_value
-            base = float(ev[0]) if hasattr(ev, "__len__") else float(ev)
+        predicted_class_idx = self._predicted_class_idx(X_row)
+        class_shap, base = self._class_shap_and_base(X_row, predicted_class_idx)
 
         explanation = shap.Explanation(
-            values=sv,
+            values=class_shap,
             base_values=base,
             data=X_row[0],
             feature_names=self.feature_names,
         )
 
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, _ax = plt.subplots(figsize=(10, 6))
         shap.plots.waterfall(explanation, max_display=max_display, show=False)
         plt.tight_layout()
         return plt.gcf()

@@ -1,0 +1,20 @@
+# CICIDS-2017 known-good SHA-256 hashes.
+#
+# Format: <sha256>  <filename>
+#
+# Values below are placeholders — the trainer refuses to accept a downloaded
+# file if the placeholder is unchanged. To bootstrap:
+#   1. Download once from the UNB canonical URL over a trusted network
+#      (`python data/download_cicids.py --day monday --skip-hash-check`)
+#   2. Verify the CSV structure looks correct
+#   3. Run `sha256sum data/cicids/*.csv > data/cicids_sha256.txt` and commit.
+# From that point on every subsequent download is verified against this file.
+
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Monday-WorkingHours.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Tuesday-WorkingHours.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Wednesday-workingHours.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv
+REPLACE_ME_PLACEHOLDER_HASH_ONLY_FOR_BOOTSTRAP  Friday-WorkingHours-Morning.pcap_ISCX.csv
