@@ -11,3 +11,11 @@ alembic==1.13.1
 
 # Elasticsearch async client
 elasticsearch[async]==8.13.0
+
+# Auth: JWT signing/verification + password hashing
+pyjwt==2.9.0
+argon2-cffi==23.1.0
+python-multipart==0.0.9
+
+# Rate limiting
+slowapi==0.1.9

@@ -21,13 +21,13 @@ _session_factory = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
-            echo=False,
-        )
+        url = settings.database_url
+        # SQLite (used in tests) does not accept the async connection-pool
+        # tuning kwargs — they only apply to real network drivers like asyncpg.
+        kwargs: dict = {"pool_pre_ping": True, "echo": False}
+        if not url.startswith("sqlite"):
+            kwargs.update(pool_size=10, max_overflow=20)
+        _engine = create_async_engine(url, **kwargs)
     return _engine
 
 

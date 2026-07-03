@@ -4,18 +4,27 @@ Prediction service — orchestrates the two-stage inference pipeline.
 Loaded once at API startup via FastAPI lifespan. Never instantiate per-request
 (model loading from disk takes seconds and would cause catastrophic latency).
 
+Security note: model artifacts on disk are treated as *untrusted input*.
+``joblib.load`` and ``xgb.Booster.load_model`` can execute arbitrary code on a
+tampered file, so every artifact's SHA-256 is verified against the manifest
+declared in ``settings.model_manifest_path`` before it touches the deserializer.
+An unset manifest is fatal outside development.
+
 Inference order:
   1. preprocess(features) → scaled/selected numpy array
-  2. anomaly_score()     → IsolationForest raw score
-  3. classify()          → XGBoost label + probabilities
-  4. map_mitre()         → MITRE ATT&CK techniques
-  5. explain()           → SHAP feature contributions
-  6. derive_severity()   → CRITICAL/HIGH/MEDIUM/LOW/INFO
+  2. anomaly_score()      → IsolationForest raw score
+  3. classify()           → XGBoost label + probabilities
+  4. map_mitre()          → MITRE ATT&CK techniques
+  5. explain()            → SHAP feature contributions
+  6. derive_severity()    → CRITICAL/HIGH/MEDIUM/LOW/INFO
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -57,10 +66,42 @@ FEATURE_COLUMNS = [
 ]
 
 
+class ModelIntegrityError(RuntimeError):
+    """A model artifact failed the SHA-256 integrity check."""
+
+
+def _sha256_file(path: str, chunk: int = 1 << 20) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _verify(path: str, expected: dict[str, str]) -> None:
+    """Raise ``ModelIntegrityError`` if ``path`` does not match its manifest hash."""
+    resolved = os.path.abspath(path)
+    manifest_hash = expected.get(resolved)
+    if manifest_hash is None:
+        if settings.app_env == "development":
+            logger.warning(
+                "No manifest hash for %s; skipping integrity check (development only).",
+                resolved,
+            )
+            return
+        raise ModelIntegrityError(f"Manifest has no entry for {resolved!r}")
+    actual = _sha256_file(path)
+    if actual != manifest_hash:
+        raise ModelIntegrityError(
+            f"SHA-256 mismatch for {resolved!r}: expected {manifest_hash}, got {actual}"
+        )
+    logger.info("Integrity ok: %s (sha256=%s)", Path(path).name, actual)
+
+
 def _derive_severity(anomaly_score: float, label: str, confidence: float) -> str:
-    """
-    Derive a severity tier from the anomaly score, threat label, and confidence.
-    Anomaly score from IsolationForest: more negative = more anomalous.
+    """Severity tier from anomaly score, threat label, confidence.
+
+    IsolationForest: more negative = more anomalous.
     """
     if label == "BENIGN":
         return "INFO"
@@ -81,18 +122,25 @@ class PredictionService:
         isolation_forest_path: str = settings.isolation_forest_path,
         stix_path: str = "data/enterprise-attack.json",
     ) -> None:
-        logger.info("Loading preprocessor from %s", preprocessor_path)
+        manifest = settings.load_model_hashes()
+        if not manifest and settings.app_env != "development":
+            raise ModelIntegrityError(
+                "MODEL_MANIFEST_PATH is unset or empty; refusing to load artifacts "
+                "without integrity verification outside development."
+            )
+
+        _verify(preprocessor_path, manifest)
         self.pipeline = load_preprocessor(preprocessor_path)
 
-        logger.info("Loading IsolationForest from %s", isolation_forest_path)
+        _verify(isolation_forest_path, manifest)
         self.detector = AnomalyDetector.load(isolation_forest_path)
 
-        logger.info("Loading XGBoost classifier from %s", model_path)
+        _verify(model_path, manifest)
         self.classifier = ThreatClassifier.load(model_path)
 
         self.mitre_mapper = MitreMapper(stix_path)
 
-        # Lazy-load SHAP explainer (heavy import)
+        # SHAP explainer is heavy — lazy-load on first prediction.
         self._shap_explainer = None
         logger.info("PredictionService ready")
 
@@ -100,6 +148,7 @@ class PredictionService:
         if self._shap_explainer is None:
             from explainability.shap_explainer import SHAPExplainer
             from models.preprocessor import get_feature_names
+
             feature_names = get_feature_names(self.pipeline, FEATURE_COLUMNS)
             self._shap_explainer = SHAPExplainer(
                 xgb_model=self.classifier.model,
@@ -108,7 +157,6 @@ class PredictionService:
         return self._shap_explainer
 
     def features_to_array(self, features: dict[str, float]) -> np.ndarray:
-        """Convert a feature dict to a numpy array in CICIDS-2017 column order."""
         row = np.array(
             [features.get(col, 0.0) for col in FEATURE_COLUMNS],
             dtype=np.float32,
@@ -121,41 +169,30 @@ class PredictionService:
         source_ip: Optional[str] = None,
         dest_ip: Optional[str] = None,
     ) -> dict:
-        """
-        Full prediction pipeline. Returns a dict with all inference results.
-        """
         X_raw = self.features_to_array(features)
-
-        # Replace Infinity before preprocessing
         X_raw = np.where(np.isinf(X_raw), np.nan, X_raw)
 
-        # Step 1: Preprocess
         X_processed = self.pipeline.transform(X_raw)
 
-        # Step 2: Anomaly detection
         anomaly_score = float(self.detector.score(X_processed)[0])
         anomaly_flag = bool(self.detector.is_anomaly(X_processed)[0])
 
-        # Step 3: Classification (always run — even for non-anomalies, for logging)
-        label, confidence, proba = self.classifier.predict_single(X_processed)
+        label, confidence, _proba = self.classifier.predict_single(X_processed)
         if label.isdigit():
             label = INT_TO_LABEL.get(int(label), label)
 
-        # Step 4: MITRE mapping
         mitre_techniques = self.mitre_mapper.map(label)
 
-        # Step 5: SHAP explanation
         try:
             explainer = self._get_shap_explainer()
             shap_data = explainer.explain_prediction(X_processed)
             shap_values = shap_data["feature_contributions"]
             top_shap = shap_data["top_features"][:10]
-        except Exception as e:
-            logger.warning("SHAP explanation failed: %s", e)
+        except Exception:
+            logger.exception("SHAP explanation failed")
             shap_values = []
             top_shap = []
 
-        # Step 6: Severity
         severity = _derive_severity(anomaly_score, label, confidence)
 
         return {

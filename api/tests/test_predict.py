@@ -15,18 +15,22 @@ SAMPLE_PAYLOAD = {
 
 
 @pytest.mark.asyncio
-async def test_predict_returns_incident_id(client):
+async def test_predict_requires_auth(client):
     response = await client.post("/predict", json=SAMPLE_PAYLOAD)
-    # Will be 503 if DB not available — acceptable in pure unit test context
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_predict_returns_incident_id(client_analyst):
+    response = await client_analyst.post("/predict", json=SAMPLE_PAYLOAD)
+    # 503 is acceptable when the mock service is not wired via the app state
+    # override — schema is what we care about here.
     assert response.status_code in (200, 503)
 
 
 @pytest.mark.asyncio
-async def test_predict_response_schema(client, mock_prediction_service):
-    """Prediction service mock returns deterministic output — check schema."""
-    # This test validates the schema when service is wired up correctly
-    # Full integration test with DB is in tests/integration/
-    response = await client.post("/predict", json=SAMPLE_PAYLOAD)
+async def test_predict_response_schema(client_analyst):
+    response = await client_analyst.post("/predict", json=SAMPLE_PAYLOAD)
     if response.status_code == 200:
         data = response.json()
         assert "incident_id" in data
