@@ -1,5 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
+import {
+  IncidentDetailSchema,
+  IncidentListResponseSchema,
+} from '../schemas/incident'
 
 interface IncidentListParams {
   page?: number
@@ -19,7 +23,7 @@ export function useIncidents(params: IncidentListParams = {}) {
       if (params.status) searchParams.set('status', params.status)
 
       const { data } = await apiClient.get(`/incidents?${searchParams.toString()}`)
-      return data
+      return IncidentListResponseSchema.parse(data)
     },
     refetchInterval: 30_000,
   })
@@ -30,7 +34,7 @@ export function useIncident(id: string) {
     queryKey: ['incident', id],
     queryFn: async () => {
       const { data } = await apiClient.get(`/incidents/${id}`)
-      return data
+      return IncidentDetailSchema.parse(data)
     },
     enabled: !!id,
   })

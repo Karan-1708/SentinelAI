@@ -1,15 +1,16 @@
-import { useParams, Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useIncident } from '../hooks/useIncidents'
+import { safeHttpUrl } from '../schemas/incident'
 import SeverityBadge from '../components/SeverityBadge'
 import MitreTacticBadge from '../components/MitreTacticBadge'
 import ShapWaterfallChart from '../components/ShapWaterfallChart'
 
 const SEVERITY_HERO: Record<string, string> = {
   CRITICAL: 'from-red-950/70 via-slate-950 to-slate-950 border-red-500/30',
-  HIGH:     'from-orange-950/70 via-slate-950 to-slate-950 border-orange-500/30',
-  MEDIUM:   'from-yellow-950/60 via-slate-950 to-slate-950 border-yellow-500/30',
-  LOW:      'from-blue-950/60 via-slate-950 to-slate-950 border-blue-500/30',
-  INFO:     'from-green-950/60 via-slate-950 to-slate-950 border-green-500/30',
+  HIGH: 'from-orange-950/70 via-slate-950 to-slate-950 border-orange-500/30',
+  MEDIUM: 'from-yellow-950/60 via-slate-950 to-slate-950 border-yellow-500/30',
+  LOW: 'from-blue-950/60 via-slate-950 to-slate-950 border-blue-500/30',
+  INFO: 'from-green-950/60 via-slate-950 to-slate-950 border-green-500/30',
 }
 
 function StatCard({ icon, label, value, mono = false }: {
@@ -18,7 +19,7 @@ function StatCard({ icon, label, value, mono = false }: {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-base">{icon}</span>
+        <span className="text-base" aria-hidden="true">{icon}</span>
         <p className="text-[10px] text-slate-500 uppercase tracking-widest">{label}</p>
       </div>
       <p className={`text-slate-100 font-bold text-lg ${mono ? 'font-mono' : ''}`}>{value}</p>
@@ -34,7 +35,7 @@ export default function IncidentDetail() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="flex flex-col items-center gap-3 text-slate-500">
-          <span className="text-3xl animate-spin">⟳</span>
+          <span className="text-3xl animate-spin" aria-hidden="true">⟳</span>
           <p className="text-sm">Loading incident…</p>
         </div>
       </div>
@@ -44,7 +45,7 @@ export default function IncidentDetail() {
   if (error || !incident) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-slate-500">
-        <span className="text-5xl">🔍</span>
+        <span className="text-5xl" aria-hidden="true">🔍</span>
         <p className="text-sm">Incident not found</p>
         <Link to="/" className="text-blue-400 hover:text-cyan-400 transition-colors text-sm">
           ← Back to Dashboard
@@ -81,12 +82,12 @@ export default function IncidentDetail() {
           </div>
 
           <a
-            href={`/api/reports/${incident.id}`}
+            href={`/api/reports/${encodeURIComponent(incident.id)}`}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="shrink-0 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-lg shadow-blue-500/20"
           >
-            📄 PDF Report
+            <span aria-hidden="true">📄</span> PDF Report
           </a>
         </div>
       </div>
@@ -103,32 +104,36 @@ export default function IncidentDetail() {
         </div>
 
         {/* ── MITRE ATT&CK ─────────────────────────────── */}
-        {incident.mitre_techniques?.length > 0 && (
+        {incident.mitre_techniques.length > 0 && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <span>⚔️</span>
-              <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">MITRE ATT&CK Techniques</h2>
+              <span aria-hidden="true">⚔️</span>
+              <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">MITRE ATT&amp;CK Techniques</h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {incident.mitre_techniques.map((ttp: any) => (
-                <a
-                  key={ttp.technique_id}
-                  href={ttp.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-start gap-3 bg-slate-800/60 border border-slate-700/60 hover:border-slate-600 rounded-lg p-3 transition-colors group"
-                >
-                  <span className="font-mono text-xs text-blue-400 shrink-0 group-hover:text-cyan-400 transition-colors font-bold">
-                    {ttp.technique_id}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-slate-200 text-xs font-semibold truncate">
-                      {ttp.technique_name !== ttp.technique_id ? ttp.technique_name : 'View on MITRE →'}
-                    </p>
-                    <MitreTacticBadge tactic={ttp.tactic} techniqueId="" />
-                  </div>
-                </a>
-              ))}
+              {incident.mitre_techniques.map((ttp) => {
+                const safeUrl = safeHttpUrl(ttp.url)
+                const Wrapper = safeUrl ? 'a' : 'div'
+                return (
+                  <Wrapper
+                    key={ttp.technique_id}
+                    {...(safeUrl
+                      ? { href: safeUrl, target: '_blank', rel: 'noopener noreferrer' }
+                      : {})}
+                    className="flex items-start gap-3 bg-slate-800/60 border border-slate-700/60 hover:border-slate-600 rounded-lg p-3 transition-colors group"
+                  >
+                    <span className="font-mono text-xs text-blue-400 shrink-0 group-hover:text-cyan-400 transition-colors font-bold">
+                      {ttp.technique_id}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-slate-200 text-xs font-semibold truncate">
+                        {ttp.technique_name !== ttp.technique_id ? ttp.technique_name : 'View on MITRE →'}
+                      </p>
+                      <MitreTacticBadge tactic={ttp.tactic} techniqueId="" />
+                    </div>
+                  </Wrapper>
+                )
+              })}
             </div>
           </div>
         )}
@@ -137,7 +142,7 @@ export default function IncidentDetail() {
         {shapFeatures.length > 0 && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center gap-2 mb-2">
-              <span>🧠</span>
+              <span aria-hidden="true">🧠</span>
               <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Explainability</h2>
             </div>
             <ShapWaterfallChart features={shapFeatures} />

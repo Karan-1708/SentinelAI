@@ -1,17 +1,45 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { ReactNode } from 'react'
+
 import Dashboard from './pages/Dashboard'
 import IncidentDetail from './pages/IncidentDetail'
+import Login from './pages/Login'
+import ErrorBoundary from './components/ErrorBoundary'
+import { useAuthStore } from './store/auth'
 
-// Note: react-router-dom needs to be added to package.json if using routing
-// For simplicity, basic routing is shown; add "react-router-dom": "^6.24.0" to deps
+function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const isAuthed = useAuthStore((s) => s.isAuthed())
+  if (!isAuthed) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+  return <>{children}</>
+}
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/incidents/:id" element={<IncidentDetail />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <Dashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/incidents/:id"
+            element={
+              <RequireAuth>
+                <IncidentDetail />
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }

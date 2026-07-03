@@ -1,17 +1,17 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Incident, useIncidentStore } from '../store/incidents'
+import { IncidentSummarySchema } from '../schemas/incident'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useAuthStore } from '../store/auth'
 import SeverityBadge from './SeverityBadge'
-
-const WS_URL = (import.meta.env.VITE_WS_URL || 'ws://localhost:8000') + '/ws/feed'
 
 const SEVERITY_ROW: Record<string, string> = {
   CRITICAL: 'border-l-red-500 bg-red-950/25',
-  HIGH:     'border-l-orange-500 bg-orange-950/20',
-  MEDIUM:   'border-l-yellow-500 bg-yellow-950/10',
-  LOW:      'border-l-blue-500 bg-blue-950/10',
-  INFO:     'border-l-green-500 bg-transparent',
+  HIGH: 'border-l-orange-500 bg-orange-950/20',
+  MEDIUM: 'border-l-yellow-500 bg-yellow-950/10',
+  LOW: 'border-l-blue-500 bg-blue-950/10',
+  INFO: 'border-l-green-500 bg-transparent',
 }
 
 function relativeTime(iso: string): string {
@@ -19,6 +19,20 @@ function relativeTime(iso: string): string {
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
   return new Date(iso).toLocaleTimeString()
+}
+
+function resolveWsUrl(token: string | null): string {
+  // Prefer the same-origin approach so nginx can terminate wss:// and forward
+  // the upgraded socket to the API. VITE_WS_URL only overrides when the
+  // dashboard is hosted separately from the reverse proxy.
+  const override = import.meta.env.VITE_WS_URL as string | undefined
+  const base =
+    override ??
+    `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+
+  const url = new URL('/ws/feed', base)
+  if (token) url.searchParams.set('token', token)
+  return url.toString()
 }
 
 function IncidentRow({ incident }: { incident: Incident }) {
@@ -40,16 +54,20 @@ function IncidentRow({ incident }: { incident: Incident }) {
 
 export default function ThreatFeed() {
   const { incidents, addIncident } = useIncidentStore()
+  const token = useAuthStore((s) => s.token)
   const parentRef = useRef<HTMLDivElement>(null)
+
+  const wsUrl = useMemo(() => resolveWsUrl(token), [token])
 
   const onMessage = useCallback(
     (data: unknown) => {
-      if (data && typeof data === 'object') addIncident(data as Incident)
+      const parsed = IncidentSummarySchema.safeParse(data)
+      if (parsed.success) addIncident(parsed.data as Incident)
     },
     [addIncident],
   )
 
-  useWebSocket(WS_URL, onMessage)
+  useWebSocket(wsUrl, onMessage, !!token)
 
   const rowVirtualizer = useVirtualizer({
     count: incidents.length,
@@ -62,7 +80,7 @@ export default function ThreatFeed() {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-700/60">
         <div className="flex items-center gap-2">
-          <span className="text-blue-400">⚡</span>
+          <span className="text-blue-400" aria-hidden="true">⚡</span>
           <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Live Threat Feed</h2>
         </div>
         <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
@@ -73,7 +91,7 @@ export default function ThreatFeed() {
       <div ref={parentRef} className="flex-1 overflow-auto">
         {incidents.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-600">
-            <span className="text-4xl">🛡️</span>
+            <span className="text-4xl" aria-hidden="true">🛡️</span>
             <p className="text-xs text-center leading-relaxed">
               No events yet<br />
               <span className="text-slate-700">Predictions appear here in real time</span>
