@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint, type, test, security)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      DATABASE_URL: sqlite+aiosqlite:///:memory:
+      ELASTICSEARCH_PASSWORD: test-only
+      API_SECRET_KEY: test-only-secret-not-for-prod-32bytes!
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements/base.txt
+            requirements/api.txt
+            requirements/dev.txt
+            requirements/all.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements/all.txt -r requirements/dev.txt
+
+      - name: Ruff lint
+        run: ruff check api models ingestion explainability
+
+      - name: Mypy (api)
+        run: mypy api
+        continue-on-error: true  # first pass; tighten once inventory of issues shrinks
+
+      - name: Bandit
+        run: bandit -r api models ingestion explainability -q -ll
+
+      - name: pip-audit (fail on High)
+        run: pip-audit --strict -r requirements/api.txt
+
+      - name: Pytest
+        run: pytest -q --cov=api --cov=models --cov=ingestion --cov=explainability --cov-report=term
+
+  dashboard:
+    name: Dashboard (lint, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint || echo "lint config not yet finalised"
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
